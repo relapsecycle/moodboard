@@ -7,7 +7,7 @@ import bpy
 
 from . import drawing, geometry
 from .constants import BASE_DISPLAY_SIZE, IMAGE_EXTENSIONS, NODE_ID, TREE_ID
-from .pureref_legacy import PurRefError, PurRefModernError, read_legacy_pur
+from .pureref import PurRefError, read_pur
 
 
 def _active_tree(context):
@@ -55,12 +55,13 @@ def _add_image_node(tree, image, location, scale=1.0, rotation=0.0):
     return node
 
 
-def _image_from_png_bytes(png: bytes, name: str):
+def _image_from_bytes(payload: bytes, name: str, suffix: str = ".png"):
     temp_dir = bpy.app.tempdir or tempfile.gettempdir()
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in (name or "pur"))[:48]
-    path = os.path.join(temp_dir, f"moodboard_pur_{safe}_{os.getpid()}.png")
+    ext = suffix if suffix.startswith(".") else f".{suffix}"
+    path = os.path.join(temp_dir, f"moodboard_pur_{safe}_{os.getpid()}{ext}")
     with open(path, "wb") as handle:
-        handle.write(png)
+        handle.write(payload)
     try:
         image = bpy.data.images.load(path, check_existing=False)
         image.name = name or image.name
@@ -265,7 +266,7 @@ class MOODBOARD_OT_paste_clipboard(bpy.types.Operator):
 class MOODBOARD_OT_import_pur(bpy.types.Operator):
     bl_idname = "moodboard.import_pur"
     bl_label = "Import PureRef (.pur)"
-    bl_description = "Import a legacy PureRef 1.x scene onto the board (2.0+ not yet supported)"
+    bl_description = "Import a PureRef .pur scene (1.x and 2.x, with layout when available)"
     bl_options = {"REGISTER", "UNDO"}
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
@@ -315,12 +316,10 @@ class MOODBOARD_OT_import_pur(bpy.types.Operator):
 
         created = 0
         last_version = ""
+        notes = []
         for path in paths:
             try:
-                scene = read_legacy_pur(str(path))
-            except PurRefModernError as exc:
-                self.report({"ERROR"}, str(exc))
-                continue
+                scene = read_pur(str(path))
             except PurRefError as exc:
                 self.report({"ERROR"}, str(exc))
                 continue
@@ -328,12 +327,18 @@ class MOODBOARD_OT_import_pur(bpy.types.Operator):
                 self.report({"ERROR"}, f"Failed to read {path.name}: {exc}")
                 continue
 
-            last_version = scene.version or "1.x"
+            last_version = scene.version or "?"
+            if scene.layout_note:
+                notes.append(scene.layout_note)
             stem = path.stem
             for index, placement in enumerate(scene.placements):
                 name = placement.name or f"{stem}_{index:03d}"
                 try:
-                    image = _image_from_png_bytes(placement.png, name)
+                    image = _image_from_bytes(
+                        placement.data,
+                        name,
+                        getattr(placement, "suffix", ".png"),
+                    )
                 except Exception as exc:
                     self.report({"WARNING"}, f"Skipped image: {exc}")
                     continue
@@ -345,10 +350,10 @@ class MOODBOARD_OT_import_pur(bpy.types.Operator):
             self.report({"WARNING"}, "No images imported from that .pur")
             return {"CANCELLED"}
 
-        self.report(
-            {"INFO"},
-            f"Imported {created} image(s) from legacy PureRef ({last_version})",
-        )
+        msg = f"Imported {created} image(s) from PureRef {last_version}"
+        if notes:
+            msg += f" ({notes[-1]})"
+        self.report({"INFO"}, msg)
         return {"FINISHED"}
 
 

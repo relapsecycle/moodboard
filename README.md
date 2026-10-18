@@ -26,7 +26,7 @@ MoodBoard is a dedicated editor for image collages - drop refs from disk or the 
 |---|---|
 | **Own editor** | Split a view and open MoodBoard like UV or Geometry Nodes |
 | **Browser drops** | Drag images from Google / Chrome onto the board |
-| **PureRef import** | Load legacy PureRef 1.x `.pur` scenes (2.0+ coming later) |
+| **PureRef import** | PureRef 1.x and 2.x `.pur` scenes with layout |
 | **On-canvas controls** | Move, scale, rotate — multi-select with one group box |
 | **Fast boards** | Texture caching + view culling for large collages |
 | **Stays in the file** | Boards and packed images save with your `.blend` |

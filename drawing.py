@@ -21,7 +21,6 @@ from . import view2d_zoom
 _handle = None
 _NODE_CHROME_HEIGHT = 36.0
 _display_shader = None
-_adjust_shader = None
 _display_shader_name = ""
 _line_shader = None
 
@@ -30,7 +29,6 @@ _texture_cache = {}  # image.as_pointer() -> (texture, size_xy)
 _colorspace_ready = set()  # image.as_pointer()
 _unit_image_batch = None
 _unit_image_batch_shader = None
-_unit_adjust_batch = None
 _unit_rect_batch = None
 _unit_line_batch = None
 _last_cache_prune = 0.0
@@ -124,84 +122,11 @@ def _get_display_shader():
     return None
 
 
-def _get_adjust_shader():
-    global _adjust_shader
-    if _adjust_shader is not None:
-        return _adjust_shader
-
-    try:
-        from gpu.types import GPUShaderCreateInfo, GPUStageInterfaceInfo
-    except ImportError:
-        return None
-
-    try:
-        vert_out = GPUStageInterfaceInfo("moodboard_img_iface")
-        vert_out.smooth("VEC2", "uvInterp")
-
-        info = GPUShaderCreateInfo()
-        info.vertex_in(0, "VEC3", "pos")
-        info.vertex_in(1, "VEC2", "texCoord")
-        info.sampler(0, "FLOAT_2D", "image")
-        info.vertex_out(vert_out)
-        info.fragment_out(0, "VEC4", "fragColor")
-        info.push_constant("MAT4", "ModelViewProjectionMatrix")
-        info.push_constant("FLOAT", "brightness")
-        info.push_constant("FLOAT", "contrast")
-        info.vertex_source(
-            """
-void main()
-{
-  uvInterp = texCoord;
-  gl_Position = ModelViewProjectionMatrix * vec4(pos, 1.0);
-}
-"""
-        )
-        info.fragment_source(
-            """
-float linearrgb_to_srgb(float c)
-{
-  if (c < 0.0031308) {
-    return (c < 0.0) ? 0.0 : c * 12.92;
-  }
-  return 1.055 * pow(c, 1.0 / 2.4) - 0.055;
-}
-
-vec3 linearrgb_to_srgb_v3(vec3 c)
-{
-  return vec3(linearrgb_to_srgb(c.r), linearrgb_to_srgb(c.g), linearrgb_to_srgb(c.b));
-}
-
-void main()
-{
-  vec4 tex = texture(image, uvInterp);
-  vec3 srgb = linearrgb_to_srgb_v3(max(tex.rgb, vec3(0.0)));
-  srgb = (srgb - vec3(0.5)) * contrast + vec3(0.5) + vec3(brightness);
-  fragColor = vec4(clamp(srgb, 0.0, 1.0), 1.0);
-}
-"""
-        )
-        _adjust_shader = gpu.shader.create_from_info(info)
-    except Exception:
-        _adjust_shader = None
-    return _adjust_shader
-
-
 def _get_line_shader():
     global _line_shader
     if _line_shader is None:
         _line_shader = gpu.shader.from_builtin("UNIFORM_COLOR")
     return _line_shader
-
-
-def _bind_mvp(shader):
-    try:
-        mvp = gpu.matrix.get_projection_matrix() @ gpu.matrix.get_model_view_matrix()
-        shader.uniform_float("ModelViewProjectionMatrix", mvp)
-    except Exception:
-        try:
-            shader.uniform_float("ModelViewProjectionMatrix", Matrix.Identity(4))
-        except Exception:
-            pass
 
 
 def _theme_backdrop_color():
@@ -237,15 +162,6 @@ def _get_unit_image_batch(shader):
     _unit_image_batch = batch_for_shader(shader, "TRI_FAN", {"pos": pos, "texCoord": uvs})
     _unit_image_batch_shader = shader
     return _unit_image_batch
-
-
-def _get_unit_adjust_batch(shader):
-    global _unit_adjust_batch
-    if _unit_adjust_batch is not None:
-        return _unit_adjust_batch
-    pos, uvs = _unit_quad_pos_uv()
-    _unit_adjust_batch = batch_for_shader(shader, "TRI_FAN", {"pos": pos, "texCoord": uvs})
-    return _unit_adjust_batch
 
 
 def _get_unit_rect_batch(shader):
@@ -429,28 +345,10 @@ def _cover_node_widgets(solid_shader, nodes, color, view_rect, margin_view):
         gpu.matrix.pop()
 
 
-def _needs_adjust(node):
-    brightness = float(getattr(node, "brightness", 0.0))
-    contrast = float(getattr(node, "contrast", 1.0))
-    return abs(brightness) > 1e-5 or abs(contrast - 1.0) > 1e-5
-
-
-def _draw_image_quad(node, texture, display_shader, adjust_shader, cx, cy, draw_w, draw_h):
-    rot = float(node.rotation)
-    if _needs_adjust(node) and adjust_shader is not None:
-        batch = _get_unit_adjust_batch(adjust_shader)
-        _push_quad_matrix(cx, cy, draw_w, draw_h, rot)
-        adjust_shader.bind()
-        _bind_mvp(adjust_shader)
-        adjust_shader.uniform_sampler("image", texture)
-        adjust_shader.uniform_float("brightness", float(node.brightness))
-        adjust_shader.uniform_float("contrast", float(node.contrast))
-        batch.draw(adjust_shader)
-        gpu.matrix.pop()
-        return
-
+def _draw_image_quad(node, texture, display_shader, cx, cy, draw_w, draw_h):
     if display_shader is None:
         return
+    rot = float(node.rotation)
     batch = _get_unit_image_batch(display_shader)
     _push_quad_matrix(cx, cy, draw_w, draw_h, rot)
     display_shader.bind()
@@ -483,8 +381,7 @@ def draw_callback():
     view2d_zoom.relax_moodboard_zoom(region)
 
     display_shader = _get_display_shader()
-    adjust_shader = _get_adjust_shader()
-    if display_shader is None and adjust_shader is None:
+    if display_shader is None:
         return
 
     line_shader = _get_line_shader()
@@ -537,7 +434,7 @@ def draw_callback():
             continue
 
         try:
-            _draw_image_quad(node, texture, display_shader, adjust_shader, cx, cy, draw_w, draw_h)
+            _draw_image_quad(node, texture, display_shader, cx, cy, draw_w, draw_h)
         except Exception:
             invalidate_image(image)
             continue
@@ -555,16 +452,13 @@ def draw_callback():
 
 
 def register():
-    global _handle, _display_shader, _adjust_shader, _display_shader_name
-    global _line_shader, _unit_image_batch, _unit_image_batch_shader
-    global _unit_adjust_batch, _unit_rect_batch
+    global _handle, _display_shader, _display_shader_name, _line_shader
+    global _unit_image_batch, _unit_image_batch_shader, _unit_rect_batch
     _display_shader = None
-    _adjust_shader = None
     _display_shader_name = ""
     _line_shader = None
     _unit_image_batch = None
     _unit_image_batch_shader = None
-    _unit_adjust_batch = None
     _unit_rect_batch = None
     _texture_cache.clear()
     _colorspace_ready.clear()
@@ -579,19 +473,16 @@ def register():
 
 
 def unregister():
-    global _handle, _display_shader, _adjust_shader, _display_shader_name
-    global _line_shader, _unit_image_batch, _unit_image_batch_shader
-    global _unit_adjust_batch, _unit_rect_batch
+    global _handle, _display_shader, _display_shader_name, _line_shader
+    global _unit_image_batch, _unit_image_batch_shader, _unit_rect_batch
     if _handle is not None:
         bpy.types.SpaceNodeEditor.draw_handler_remove(_handle, "WINDOW")
         _handle = None
     _display_shader = None
-    _adjust_shader = None
     _display_shader_name = ""
     _line_shader = None
     _unit_image_batch = None
     _unit_image_batch_shader = None
-    _unit_adjust_batch = None
     _unit_rect_batch = None
     _texture_cache.clear()
     _colorspace_ready.clear()

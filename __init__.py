@@ -1,7 +1,7 @@
 bl_info = {
     "name": "MoodBoard",
     "author": "ADDICT",
-    "version": (1, 0, 13),
+    "version": (1, 0, 17),
     "blender": (4, 2, 0),
     "location": "Editor Type > MoodBoard",
     "description": "Image reference collage board inside Blender",

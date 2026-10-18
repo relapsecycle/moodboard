@@ -10,10 +10,6 @@ def _update_node_size(self, context):
     drawing.tag_redraw_all_node_editors()
 
 
-def _update_redraw(self, context):
-    drawing.tag_redraw_all_node_editors()
-
-
 class MoodBoardTreeNode:
     @classmethod
     def poll(cls, ntree):
@@ -48,26 +44,6 @@ class MoodBoardImageNode(MoodBoardTreeNode, Node):
         soft_max=180.0,
         update=_update_node_size,
     )
-    brightness: bpy.props.FloatProperty(
-        name="Brightness",
-        description="Lift or crush display brightness for this reference",
-        default=0.0,
-        min=-1.0,
-        max=1.0,
-        soft_min=-0.5,
-        soft_max=0.5,
-        update=_update_redraw,
-    )
-    contrast: bpy.props.FloatProperty(
-        name="Contrast",
-        description="Display contrast for this reference (1 = unchanged)",
-        default=1.0,
-        min=0.05,
-        max=4.0,
-        soft_min=0.4,
-        soft_max=2.5,
-        update=_update_redraw,
-    )
 
     def init(self, context):
         self.width = 20
@@ -79,8 +55,6 @@ class MoodBoardImageNode(MoodBoardTreeNode, Node):
         self.image = node.image
         self.scale = node.scale
         self.rotation = node.rotation
-        self.brightness = node.brightness
-        self.contrast = node.contrast
 
     def draw_buttons(self, context, layout):
         pass
@@ -89,8 +63,6 @@ class MoodBoardImageNode(MoodBoardTreeNode, Node):
         layout.template_ID(self, "image", open="image.open", unlink="image.unlink")
         layout.prop(self, "scale", slider=True)
         layout.prop(self, "rotation", slider=True)
-        layout.prop(self, "brightness", slider=True)
-        layout.prop(self, "contrast", slider=True)
 
     def draw_label(self):
         return " "

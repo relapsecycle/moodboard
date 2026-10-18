@@ -2,7 +2,7 @@ import bpy
 
 from .constants import NODE_ID, TREE_ID
 
-_ADDON_VERSION = "1.0.13"
+_ADDON_VERSION = "1.0.17"
 
 
 def _is_moodboard(context):
@@ -55,6 +55,7 @@ class MOODBOARD_PT_main(bpy.types.Panel):
         tip.label(text="Drop files or browser images")
         tip.label(text="Shift+click · multi-select")
         tip.label(text="MMB pan · scroll zoom")
+        tip.label(text="PureRef 1.x / 2.x import")
 
 
 class MOODBOARD_PT_selected(bpy.types.Panel):
@@ -98,10 +99,6 @@ class MOODBOARD_PT_selected(bpy.types.Panel):
         col.prop(node, "scale", slider=True)
         col.prop(node, "rotation", slider=True)
 
-        col = layout.column(align=True)
-        col.prop(node, "brightness", slider=True)
-        col.prop(node, "contrast", slider=True)
-
 
 class MOODBOARD_PT_help(bpy.types.Panel):
     bl_label = "Shortcuts"
@@ -124,7 +121,7 @@ class MOODBOARD_PT_help(bpy.types.Panel):
         col.label(text="Blue knob · rotate")
         col.label(text="Shift+click · add / remove")
         col.label(text="Ctrl+V · paste clipboard")
-        col.label(text="PureRef import · legacy 1.x")
+        col.label(text="PureRef 1.x / 2.x with layout")
 
 
 classes = (

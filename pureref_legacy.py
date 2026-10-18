@@ -3,15 +3,22 @@ Legacy PureRef 1.x (.pur) reader for MoodBoard.
 
 Original MoodBoard code. Format layout is publicly documented
 (header → embedded PNGs → item transforms → path → id/address refs).
-PureRef 2.0+ scenes are detected and rejected until a separate reader exists.
 """
 
 from __future__ import annotations
 
 import math
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Tuple
+
+from .pureref_common import (
+    PurImagePlacement,
+    PurRefError,
+    PurScene,
+    is_modern_version,
+    peek_pur_version,
+)
 
 
 PNG_SIG = b"\x89PNG\r\n\x1a\n"
@@ -20,37 +27,6 @@ PNG_IEND = b"\x00\x00\x00\x00IEND\xaeB`\x82"
 # Item type discriminator: byte length of the type-name string field.
 _TYPE_IMAGE = 34
 _TYPE_TEXT = 32
-
-
-class PurRefError(Exception):
-    pass
-
-
-class PurRefModernError(PurRefError):
-    pass
-
-
-@dataclass
-class PurImagePlacement:
-    """One on-canvas instance of an embedded image."""
-
-    png: bytes
-    x: float
-    y: float
-    width: float
-    height: float
-    rotation_deg: float
-    name: str = "image"
-    source: str = ""
-    z: float = 0.0
-
-
-@dataclass
-class PurScene:
-    version: str
-    placements: List[PurImagePlacement] = field(default_factory=list)
-    canvas: Tuple[float, float, float, float] = (-10000.0, -10000.0, 10000.0, 10000.0)
-    zoom: float = 1.0
 
 
 class _ByteCursor:
@@ -99,30 +75,10 @@ class _ByteCursor:
         self.origin += n
 
 
-def _header_version(data: bytes) -> str:
-    if len(data) < 8:
-        raise PurRefError("File too small to be a PureRef scene")
-    (nbytes,) = struct.unpack_from(">I", data, 0)
-    if nbytes <= 0 or nbytes > 64 or 4 + nbytes > len(data):
-        raise PurRefError("Not a PureRef scene (bad version header)")
-    raw = data[4 : 4 + nbytes]
-    # Legacy uses UTF-16-BE sized strings; some builds store ASCII.
-    if nbytes >= 2 and raw[1] == 0:
-        return raw.decode("utf-16-be", errors="replace").strip("\x00")
-    return raw.decode("ascii", errors="replace").strip("\x00")
-
-
-def _is_modern_version(version: str) -> bool:
-    text = version.lower().replace("pureref", "").strip()
-    if text.startswith("2") or text.startswith("3"):
-        return True
-    return False
-
-
 def _read_header(cur: _ByteCursor) -> Tuple[str, Tuple[float, float, float, float], float]:
     if cur.remaining() < 224:
         raise PurRefError("Truncated PureRef header")
-    version = _header_version(bytes(cur.data[:80]))
+    version = peek_pur_version(bytes(cur.data[:80]))
     canvas = (
         cur.peek(">d", 112),
         cur.peek(">d", 120),
@@ -327,14 +283,13 @@ def read_legacy_pur(path: str) -> PurScene:
     if not raw:
         raise PurRefError("Empty file")
 
-    version_peek = _header_version(raw)
-    if _is_modern_version(version_peek):
-        raise PurRefModernError(
-            f"PureRef {version_peek} is the modern format. "
-            "Re-save in PureRef as a Legacy scene, or wait for MoodBoard 2.0 import."
+    version_peek = peek_pur_version(raw)
+    if is_modern_version(version_peek):
+        raise PurRefError(
+            f"PureRef {version_peek} should be read with the modern importer."
         )
 
-    # Quick reject: legacy packs PNGs; modern often does not right after header.
+    # Quick reject: legacy packs PNGs.
     if PNG_SIG not in raw:
         raise PurRefError(
             "No embedded PNGs found. This may be a PureRef 2.0+ scene "
@@ -343,10 +298,9 @@ def read_legacy_pur(path: str) -> PurScene:
 
     cur = _ByteCursor(bytearray(raw))
     version, canvas, zoom = _read_header(cur)
-    if _is_modern_version(version):
-        raise PurRefModernError(
-            f"PureRef {version} is the modern format. "
-            "Re-save as Legacy in PureRef to import today."
+    if is_modern_version(version):
+        raise PurRefError(
+            f"PureRef {version} should be read with the modern importer."
         )
 
     images = _read_images(cur)
@@ -411,7 +365,8 @@ def read_legacy_pur(path: str) -> PurScene:
         width, height, rotation = _item_size(item)
         placements.append(
             PurImagePlacement(
-                png=png,
+                data=png,
+                suffix=".png",
                 x=item.x,
                 y=item.y,
                 width=width,
