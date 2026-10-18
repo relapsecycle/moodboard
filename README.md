@@ -10,6 +10,14 @@ MoodBoard is a dedicated editor for image collages - drop refs from disk or the 
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-22c55e?style=for-the-badge" alt="GPL-3.0"></a>
 </p>
 
+<p align="center">
+  <img src="media/workspace.jpg" alt="MoodBoard beside the 3D viewport" width="920">
+</p>
+
+<p align="center">
+  <img src="media/board.png" alt="MoodBoard collage editor" width="920">
+</p>
+
 ---
 
 ## Why MoodBoard

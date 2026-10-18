@@ -43,6 +43,7 @@ def _view_center(context):
 
 
 def _add_image_node(tree, image, location, scale=1.0):
+    drawing.ensure_display_colorspace(image)
     node = tree.nodes.new(NODE_ID)
     node.image = image
     node.scale = scale

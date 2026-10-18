@@ -1,6 +1,9 @@
 import bpy
 
+from . import drawing
 from .constants import NODE_ID, TREE_ID
+
+_ADDON_VERSION = "1.0.7"
 
 
 def _is_moodboard(context):
@@ -26,6 +29,9 @@ class MOODBOARD_PT_main(bpy.types.Panel):
 
         col = layout.column(align=True)
         col.operator("moodboard.new_board", icon="ADD")
+
+        layout.label(text=f"MoodBoard {_ADDON_VERSION}")
+        layout.label(text=f"Draw: {drawing.display_shader_name()}")
 
         if tree:
             layout.label(text=f"Board: {tree.name}")
@@ -79,6 +85,10 @@ class MOODBOARD_PT_selected(bpy.types.Panel):
         col = layout.column(align=True)
         col.prop(node, "scale", slider=True)
         col.prop(node, "rotation", slider=True)
+        col.separator()
+        col.label(text="Display (not node Color)")
+        col.prop(node, "brightness", slider=True)
+        col.prop(node, "contrast", slider=True)
 
 
 classes = (
