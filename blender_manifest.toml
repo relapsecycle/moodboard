@@ -1,0 +1,16 @@
+schema_version = "1.0.0"
+
+id = "moodboard"
+version = "1.0.0"
+name = "MoodBoard"
+tagline = "Image reference collage board inside Blender"
+maintainer = "ADDICT <https://github.com/relapsecycle>"
+type = "add-on"
+tags = ["User Interface"]
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+website = "https://github.com/relapsecycle/moodboard"
+copyright = ["2026 ADDICT"]
+
+[permissions]
+network = "Download images dragged or pasted from web browsers"

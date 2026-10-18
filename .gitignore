@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.zip
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.blend
+*.blend1
+_pack_addon.py
+_rename_to_moodboard.py
