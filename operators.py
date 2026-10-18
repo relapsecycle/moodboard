@@ -1,11 +1,13 @@
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import bpy
 
-from . import drawing
-from .constants import IMAGE_EXTENSIONS, NODE_ID, TREE_ID
+from . import drawing, geometry
+from .constants import BASE_DISPLAY_SIZE, IMAGE_EXTENSIONS, NODE_ID, TREE_ID
+from .pureref_legacy import PurRefError, PurRefModernError, read_legacy_pur
 
 
 def _active_tree(context):
@@ -42,13 +44,48 @@ def _view_center(context):
         return 0.0, 0.0
 
 
-def _add_image_node(tree, image, location, scale=1.0):
+def _add_image_node(tree, image, location, scale=1.0, rotation=0.0):
     drawing.ensure_display_colorspace(image)
     node = tree.nodes.new(NODE_ID)
     node.image = image
     node.scale = scale
+    node.rotation = rotation
     node.location = location
     drawing.sync_node_size(node)
+    return node
+
+
+def _image_from_png_bytes(png: bytes, name: str):
+    temp_dir = bpy.app.tempdir or tempfile.gettempdir()
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in (name or "pur"))[:48]
+    path = os.path.join(temp_dir, f"moodboard_pur_{safe}_{os.getpid()}.png")
+    with open(path, "wb") as handle:
+        handle.write(png)
+    try:
+        image = bpy.data.images.load(path, check_existing=False)
+        image.name = name or image.name
+        try:
+            image.pack()
+        except Exception:
+            pass
+        drawing.ensure_display_colorspace(image)
+        return image
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _place_pur_node(tree, image, placement):
+    iw, ih = image.size
+    longest = max(iw, ih, 1)
+    # Match PureRef on-canvas height in board units.
+    scale = (placement.height * longest) / (max(ih, 1) * BASE_DISPLAY_SIZE)
+    scale = max(float(scale), 0.05)
+    node = _add_image_node(tree, image, (0.0, 0.0), scale=scale, rotation=placement.rotation_deg)
+    # PureRef Y grows downward; MoodBoard view Y grows upward.
+    geometry.set_node_location_from_center(node, placement.x, -placement.y)
     return node
 
 
@@ -222,6 +259,96 @@ class MOODBOARD_OT_paste_clipboard(bpy.types.Operator):
 
         drawing.tag_redraw_all_node_editors()
         self.report({"INFO"}, "Pasted clipboard image")
+        return {"FINISHED"}
+
+
+class MOODBOARD_OT_import_pur(bpy.types.Operator):
+    bl_idname = "moodboard.import_pur"
+    bl_label = "Import PureRef (.pur)"
+    bl_description = "Import a legacy PureRef 1.x scene onto the board (2.0+ not yet supported)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    directory: bpy.props.StringProperty(subtype="DIR_PATH", options={"HIDDEN", "SKIP_SAVE"})
+    files: bpy.props.CollectionProperty(
+        type=bpy.types.OperatorFileListElement,
+        options={"HIDDEN", "SKIP_SAVE"},
+    )
+    filter_glob: bpy.props.StringProperty(default="*.pur", options={"HIDDEN"})
+
+    @classmethod
+    def poll(cls, context):
+        space = context.space_data
+        return bool(space and space.type == "NODE_EDITOR" and space.tree_type == TREE_ID)
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _resolve_paths(self):
+        paths = []
+        if self.files and self.directory:
+            for entry in self.files:
+                name = getattr(entry, "name", "")
+                if not name:
+                    continue
+                paths.append(Path(bpy.path.abspath(self.directory)) / name)
+        if self.filepath:
+            paths.append(Path(bpy.path.abspath(self.filepath)))
+        unique = []
+        seen = set()
+        for path in paths:
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            if path.suffix.lower() == ".pur" and path.is_file():
+                unique.append(path)
+        return unique
+
+    def execute(self, context):
+        tree = _ensure_tree(context)
+        paths = self._resolve_paths()
+        if not paths:
+            self.report({"ERROR"}, "File not found")
+            return {"CANCELLED"}
+
+        created = 0
+        last_version = ""
+        for path in paths:
+            try:
+                scene = read_legacy_pur(str(path))
+            except PurRefModernError as exc:
+                self.report({"ERROR"}, str(exc))
+                continue
+            except PurRefError as exc:
+                self.report({"ERROR"}, str(exc))
+                continue
+            except Exception as exc:
+                self.report({"ERROR"}, f"Failed to read {path.name}: {exc}")
+                continue
+
+            last_version = scene.version or "1.x"
+            stem = path.stem
+            for index, placement in enumerate(scene.placements):
+                name = placement.name or f"{stem}_{index:03d}"
+                try:
+                    image = _image_from_png_bytes(placement.png, name)
+                except Exception as exc:
+                    self.report({"WARNING"}, f"Skipped image: {exc}")
+                    continue
+                _place_pur_node(tree, image, placement)
+                created += 1
+
+        drawing.tag_redraw_all_node_editors()
+        if created == 0:
+            self.report({"WARNING"}, "No images imported from that .pur")
+            return {"CANCELLED"}
+
+        self.report(
+            {"INFO"},
+            f"Imported {created} image(s) from legacy PureRef ({last_version})",
+        )
         return {"FINISHED"}
 
 
@@ -597,6 +724,21 @@ def _capture_hover_browser_temp():
     _hover_drop_cache["cleanup"] = cleanup
 
 
+class MOODBOARD_FH_pur(bpy.types.FileHandler):
+    bl_idname = "MOODBOARD_FH_pur"
+    bl_label = "MoodBoard PureRef Drop"
+    bl_import_operator = "moodboard.import_pur"
+    bl_file_extensions = ".pur"
+
+    @classmethod
+    def poll_drop(cls, context):
+        area = getattr(context, "area", None)
+        if area is None or area.type != "NODE_EDITOR":
+            return False
+        space = context.space_data
+        return bool(space and getattr(space, "tree_type", None) == TREE_ID)
+
+
 class MOODBOARD_FH_images(bpy.types.FileHandler):
     bl_idname = "MOODBOARD_FH_images"
     bl_label = "MoodBoard Image Drop"
@@ -623,9 +765,11 @@ class MOODBOARD_FH_images(bpy.types.FileHandler):
 classes = (
     MOODBOARD_OT_new_board,
     MOODBOARD_OT_import_folder,
+    MOODBOARD_OT_import_pur,
     MOODBOARD_OT_paste_clipboard,
     MOODBOARD_OT_add_image,
     MOODBOARD_OT_drop_images,
+    MOODBOARD_FH_pur,
     MOODBOARD_FH_images,
 )
 

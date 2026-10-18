@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "moodboard"
-version = "1.0.7"
+version = "1.0.13"
 name = "MoodBoard"
 tagline = "Image reference collage board inside Blender"
 maintainer = "ADDICT <https://github.com/relapsecycle>"

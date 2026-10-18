@@ -66,16 +66,13 @@ def set_node_location_from_center(node, center_x, center_y):
     node.location = (center_x - draw_w * 0.5, center_y + draw_h * 0.5)
 
 
-def gizmo_points(node, region):
-    """Corner + rotate handle positions in view space."""
-    cx, cy, draw_w, draw_h = node_image_rect(node)
-    corners = quad_corners(cx, cy, draw_w, draw_h, node.rotation)
+def _gizmo_from_rect(cx, cy, draw_w, draw_h, rotation_deg, region):
+    corners = quad_corners(cx, cy, draw_w, draw_h, rotation_deg)
     handle = pixels_to_view(region, HANDLE_PIXELS)
     rot_offset = pixels_to_view(region, ROTATE_HANDLE_OFFSET_PIXELS)
 
-    top_mid = rotate_point(cx, cy + draw_h * 0.5, cx, cy, node.rotation)
-    # Offset along the rotated "up" axis from center through top mid.
-    up = rotate_point(cx, cy + 1.0, cx, cy, node.rotation)
+    top_mid = rotate_point(cx, cy + draw_h * 0.5, cx, cy, rotation_deg)
+    up = rotate_point(cx, cy + 1.0, cx, cy, rotation_deg)
     up_dir_x = up[0] - cx
     up_dir_y = up[1] - cy
     rotate_pos = (top_mid[0] + up_dir_x * rot_offset, top_mid[1] + up_dir_y * rot_offset)
@@ -83,6 +80,7 @@ def gizmo_points(node, region):
     return {
         "center": (cx, cy),
         "size": (draw_w, draw_h),
+        "rotation": rotation_deg,
         "corners": corners,
         "handles": {
             "scale_tl": corners[0],
@@ -94,6 +92,49 @@ def gizmo_points(node, region):
         "handle_size": handle,
         "top_mid": top_mid,
     }
+
+
+def gizmo_points(node, region):
+    """Corner + rotate handle positions for a single image."""
+    cx, cy, draw_w, draw_h = node_image_rect(node)
+    return _gizmo_from_rect(cx, cy, draw_w, draw_h, node.rotation, region)
+
+
+def selection_world_corners(nodes):
+    """All corner points of the given image nodes in view space."""
+    points = []
+    for node in nodes:
+        if getattr(node, "bl_idname", None) != NODE_ID or not getattr(node, "image", None):
+            continue
+        cx, cy, draw_w, draw_h = node_image_rect(node)
+        points.extend(quad_corners(cx, cy, draw_w, draw_h, node.rotation))
+    return points
+
+
+def selection_aabb(nodes):
+    """Axis-aligned bounds covering all selected image quads.
+
+    Returns (cx, cy, width, height) or None.
+    """
+    points = selection_world_corners(nodes)
+    if not points:
+        return None
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = min(ys), max(ys)
+    width = max(xmax - xmin, 1e-3)
+    height = max(ymax - ymin, 1e-3)
+    return (xmin + xmax) * 0.5, (ymin + ymax) * 0.5, width, height
+
+
+def group_gizmo_points(nodes, region):
+    """Single shared gizmo box around a multi-selection (axis-aligned)."""
+    bounds = selection_aabb(nodes)
+    if bounds is None:
+        return None
+    cx, cy, draw_w, draw_h = bounds
+    return _gizmo_from_rect(cx, cy, draw_w, draw_h, 0.0, region)
 
 
 def point_in_rotated_rect(px, py, cx, cy, width, height, rotation_deg, padding=0.0):
@@ -125,10 +166,32 @@ def hit_test_board(tree, view_x, view_y, region):
     handle_r2 = handle_r * handle_r
 
     nodes = [n for n in tree.nodes if n.bl_idname == NODE_ID and n.image]
+    selected = [n for n in nodes if n.select]
 
-    for node in reversed(nodes):
-        if not node.select:
-            continue
+    # Multi-select: one shared control box; keep per-image hit for moving.
+    if len(selected) > 1:
+        giz = group_gizmo_points(selected, region)
+        if giz is not None:
+            for name, pos in giz["handles"].items():
+                if _dist2((view_x, view_y), pos) <= handle_r2:
+                    primary = tree.nodes.active if tree.nodes.active in selected else selected[-1]
+                    return primary, name
+
+        for node in reversed(selected):
+            cx, cy, draw_w, draw_h = node_image_rect(node)
+            if point_in_rotated_rect(view_x, view_y, cx, cy, draw_w, draw_h, node.rotation, pad):
+                return node, "move"
+
+        for node in reversed(nodes):
+            if node.select:
+                continue
+            cx, cy, draw_w, draw_h = node_image_rect(node)
+            if point_in_rotated_rect(view_x, view_y, cx, cy, draw_w, draw_h, node.rotation, pad):
+                return node, "move"
+
+        return None, None
+
+    for node in reversed(selected):
         giz = gizmo_points(node, region)
         for name, pos in giz["handles"].items():
             if _dist2((view_x, view_y), pos) <= handle_r2:

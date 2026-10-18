@@ -26,7 +26,9 @@ MoodBoard is a dedicated editor for image collages - drop refs from disk or the 
 |---|---|
 | **Own editor** | Split a view and open MoodBoard like UV or Geometry Nodes |
 | **Browser drops** | Drag images from Google / Chrome onto the board |
-| **On-canvas controls** | Move, scale, rotate with handles - not buried menus |
+| **PureRef import** | Load legacy PureRef 1.x `.pur` scenes (2.0+ coming later) |
+| **On-canvas controls** | Move, scale, rotate — multi-select with one group box |
+| **Fast boards** | Texture caching + view culling for large collages |
 | **Stays in the file** | Boards and packed images save with your `.blend` |
 
 ---
@@ -46,7 +48,7 @@ Needs **Blender 4.2+**.
 1. Split an area
 2. Editor type menu → **MoodBoard**
 3. Sidebar (`N`) → **MoodBoard** → **New Board**
-4. Drop images, import a folder, or **Ctrl+V** paste
+4. Drop images, import a folder / legacy `.pur`, or **Ctrl+V** paste
 5. Drag to move · corner squares to scale · blue knob to rotate
 
 Done. Save the blend - your board comes with it.
@@ -61,6 +63,7 @@ Done. Save the blend - your board comes with it.
 | Move | Drag the image |
 | Scale | Drag a corner square |
 | Rotate | Drag the blue top knob |
+| Multi-select | Shift+click images, then move / scale / rotate together |
 | Pan / zoom | Middle mouse / scroll |
 
 **Tip:** If a browser drag fails, right-click the image → **Copy image** → **Ctrl+V** in MoodBoard.
